@@ -33,20 +33,9 @@ object Customer {
 
       Right(Customer(userId, name))
     }
-
-  implicit val byteCodec: ByteArrayCodec[Customer] = new ByteArrayCodec[Customer] {
-    def encode(customer: Customer): Array[Byte] =
-      s"${customer.userId},${customer.name}".getBytes(StandardCharsets.UTF_8)
-    def decode(bytes: Array[Byte]): Either[Throwable, Customer] = {
-      val Array(userId, name) =
-        new String(bytes, StandardCharsets.UTF_8).split(",")
-
-      Right(Customer(userId, name))
-    }
-  }
 }
 
-class ReplicatedTableSpec extends UnitSpec with KafkaSettings {
+class ReadOnlyTableSpec extends UnitSpec with KafkaSettings {
   val userIdGen = Gen.oneOf("bob", "alice", "joe", "anyref")
 
   val customerGen = for {
@@ -76,7 +65,7 @@ class ReplicatedTableSpec extends UnitSpec with KafkaSettings {
   }
 
   def usersTable(stream: Stream[IO, Customer]) =
-    Table.inMemoryFromStream {
+    ReadOnlyTable.inMemoryFromStream {
       stream
         .map(customer => customer.userId -> customer)
         .observe1(c => IO(println(s"Insert into table: ${c}")))
