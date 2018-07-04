@@ -51,7 +51,7 @@ class ReadOnlyTableSpec extends UnitSpec with KafkaSettings {
       .interruptWhen(interrupt)
       .evalMap(Producer.produce[IO, Customer](producer, _, "customers", 0, None))
 
-  def customersConsumer(config: EmbeddedKafkaConfig) = {
+  def customersTable(config: EmbeddedKafkaConfig) = {
     val consumerSettings = mkConsumerSettings(config.kafkaPort, "customers_consumer", 1000)
 
     for {
@@ -61,15 +61,9 @@ class ReadOnlyTableSpec extends UnitSpec with KafkaSettings {
                        consumer,
                        Subscription.Topics(List("customers"))
                      )
-    } yield recordStream
+      table <- Resource.liftF(ReadOnlyTable.inMemory.plain(recordStream)(_.userId))
+    } yield table
   }
-
-  def usersTable(stream: Stream[IO, Customer]) =
-    ReadOnlyTable.inMemoryFromStream {
-      stream
-        .map(customer => customer.userId -> customer)
-        .observe1(c => IO(println(s"Insert into table: ${c}")))
-    }
 
   def userClickStream(interrupt: Signal[IO, Boolean]) =
     Stream
@@ -87,13 +81,7 @@ class ReadOnlyTableSpec extends UnitSpec with KafkaSettings {
       customersFiber <- Resource.liftF {
                          customersProducer(producer, signal).compile.drain.start
                        }
-      recordStream <- customersConsumer(config)
-      changelog = recordStream.records
-        .map(_.fa)
-        .collect {
-          case Right(customer) => customer
-        }
-      table <- usersTable(changelog)
+      table <- customersTable(config)
       printerFiber <- Resource.liftF(
                        joinWith(userClickStream(signal), table)(identity)
                          .observe1(pair => IO(println(s"Join: ${pair}")))

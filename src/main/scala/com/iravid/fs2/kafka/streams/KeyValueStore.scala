@@ -1,6 +1,6 @@
 package com.iravid.fs2.kafka.streams
 
-import cats.effect.{ Resource, Sync }
+import cats.effect.Sync
 import cats.implicits._
 import fs2.Stream
 import org.rocksdb.RocksDB
@@ -21,9 +21,9 @@ trait KeyValueStore[F[_], K, V] {
   def scan: Stream[F, (K, V)]
 }
 
-class RocksDBKeyValueStore[F[_], K: Codec, V: Codec](rocksdb: RocksDB)(implicit F: Sync[F],
-                                                                       K: Codec[K],
-                                                                       V: Codec[V])
+class RocksDBKeyValueStore[F[_], K, V](rocksdb: RocksDB)(implicit F: Sync[F],
+                                                         K: Codec[K],
+                                                         V: Codec[V])
     extends KeyValueStore[F, K, V] {
 
   def get(k: K): F[Option[V]] = F.delay {
@@ -75,16 +75,4 @@ class RocksDBKeyValueStore[F[_], K: Codec, V: Codec](rocksdb: RocksDB)(implicit 
           }
         }.unNoneTerminate
       }
-}
-
-object RocksDBKeyValueStore {
-  def create[F[_], K: Codec, V: Codec](path: String)(
-    implicit F: Sync[F]): Resource[F, KeyValueStore[F, K, V]] =
-    Resource
-      .make {
-        F.delay {
-          RocksDB.open(path)
-        }
-      }(rocksdb => F.delay(rocksdb.close()))
-      .map(new RocksDBKeyValueStore[F, K, V](_))
 }
