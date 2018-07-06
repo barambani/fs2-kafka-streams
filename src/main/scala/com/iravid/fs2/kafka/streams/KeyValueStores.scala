@@ -4,7 +4,7 @@ import cats.effect.concurrent.Ref
 import cats.effect.{ Resource, Sync }
 import cats.implicits._
 import java.nio.file.Path
-import org.rocksdb.{ ColumnFamilyDescriptor, ColumnFamilyHandle, Options, RocksDB }
+import org.rocksdb._
 import scodec.Codec
 
 import scala.collection.JavaConverters._
@@ -14,27 +14,44 @@ trait KeyValueStores[C[_], P, F[_]] {
 }
 
 class RocksDBKeyValueStores[F[_]](implicit F: Sync[F]) extends KeyValueStores[Codec, Path, F] {
+  def listColumnFamilies(storeKey: Path): F[List[ColumnFamilyDescriptor]] =
+    F.delay(
+      RocksDB
+        .listColumnFamilies(new Options(), storeKey.toAbsolutePath.toString)
+        .asScala
+        .toList
+        .map(new ColumnFamilyDescriptor(_))
+    )
+
   def open[K: Codec, V: Codec](storeKey: Path): Resource[F, KeyValueStore[F, K, V]] =
     Resource
       .make {
         for {
-          cfNames <- F.delay(
-                      RocksDB.listColumnFamilies(new Options(), storeKey.toAbsolutePath.toString))
-          cfDescs = cfNames.asScala.map(new ColumnFamilyDescriptor(_))
+          cfDescs <- listColumnFamilies(storeKey)
           storeAndHandles <- F.delay {
-                              val cfHandles = new java.util.ArrayList[ColumnFamilyHandle]()
+                              val handles = new java.util.ArrayList[ColumnFamilyHandle]()
+                              val path = storeKey.toAbsolutePath.toString
                               val store =
-                                RocksDB.open(
-                                  storeKey.toAbsolutePath.toString,
-                                  cfDescs.asJava,
-                                  cfHandles)
+                                if (cfDescs.nonEmpty)
+                                  RocksDB.open(path, cfDescs.asJava, handles)
+                                else
+                                  RocksDB.open(
+                                    new DBOptions()
+                                      .setCreateIfMissing(true)
+                                      .setCreateMissingColumnFamilies(true),
+                                    path,
+                                    List(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY)).asJava,
+                                    handles
+                                  )
 
-                              (store, cfHandles.asScala.toList)
+                              (store, handles.asScala.toList)
                             }
+
           (store, handles) = storeAndHandles
+
           defaultAndRest <- {
             val (before, after) =
-              handles.span(h => java.util.Arrays.equals(h.getName, RocksDB.DEFAULT_COLUMN_FAMILY))
+              handles.span(h => !java.util.Arrays.equals(h.getName, RocksDB.DEFAULT_COLUMN_FAMILY))
             val default = after.headOption
             val rest = before ++ after.drop(1)
 

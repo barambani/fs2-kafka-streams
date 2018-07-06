@@ -16,6 +16,7 @@ trait KeyValueStore[F[_], K, V] {
 
   def columnFamilies: F[List[ColumnFamilyHandle]]
   def createColumnFamily(name: String): F[ColumnFamilyHandle]
+  def dropColumnFamily(handle: ColumnFamilyHandle): F[Unit]
 
   def get(k: K): F[Option[V]]
   def get(columnFamily: ColumnFamilyHandle, k: K): F[Option[V]]
@@ -48,6 +49,11 @@ class RocksDBKeyValueStore[F[_], K, V](
           new ColumnFamilyDescriptor(name.getBytes(StandardCharsets.UTF_8))))
       .flatMap { handle =>
         rocksDbColumnFamilies.update(_ + (handle.getID -> handle)).as(handle.getID)
+      }
+  def dropColumnFamily(handle: ColumnFamilyHandle): F[Unit] =
+    rocksDbColumnFamilies.get.map(_.get(handle))
+      .flatMap { handle =>
+        handle.traverse_(h => F.delay(rocksdb.dropColumnFamily(h)))
       }
 
   def get0(h: RocksDBColFHandle, k: K) =
