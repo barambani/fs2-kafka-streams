@@ -59,7 +59,8 @@ class ReadOnlyTableSpec extends UnitSpec with KafkaSettings {
       recordStream <- RecordStream.plain[IO, Customer](
                        consumerSettings,
                        consumer,
-                       Subscription.Topics(List("customers"))
+                       Subscription.Topics(List("customers")),
+                       None
                      )
       table <- Resource.liftF(ReadOnlyTable.inMemory.plain(recordStream)(_.userId))
     } yield table
