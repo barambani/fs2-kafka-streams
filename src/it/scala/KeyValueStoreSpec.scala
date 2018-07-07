@@ -18,7 +18,7 @@ object Record {
 }
 
 class KeyValueStoreSpec extends UnitSpec with KafkaSettings {
-  val kvStores = new RocksDBKeyValueStores[IO]
+  val kvStores = new RocksDBKVStores[IO]
   val testData = Record("hello", 15, true)
 
   def tempDir: Resource[IO, Path] =
@@ -43,11 +43,13 @@ class KeyValueStoreSpec extends UnitSpec with KafkaSettings {
     })
 
   "The RocksDBKeyValueStore" must {
+    implicit val key: Key.Aux[Codec, String, Record] = Key.instance
+
     "work properly" in {
-      val storeResource: Resource[IO, KeyValueStore[IO, String, Record]] = for {
+      val storeResource: Resource[IO, KVStore[IO, String, Record]] = for {
         dir   <- tempDir
-        store <- kvStores.open[String, Record](dir)
-      } yield store
+        store <- kvStores.open(dir)
+      } yield store.monomorphize[String, Record]
 
       val (first, second, third, values) = (storeResource use { store =>
         for {
@@ -72,13 +74,13 @@ class KeyValueStoreSpec extends UnitSpec with KafkaSettings {
       val program = for {
         databaseDir <- tempDir
         firstRecord <- Resource.liftF {
-                        kvStores.open[String, Record](databaseDir) use { firstStore =>
+                        kvStores.open(databaseDir) use { firstStore =>
                           firstStore.get("hello") <*
                             firstStore.put("hello", testData)
                         }
                       }
         secondRecord <- Resource.liftF {
-                         kvStores.open[String, Record](databaseDir) use { secondStore =>
+                         kvStores.open(databaseDir) use { secondStore =>
                            secondStore.get("hello")
                          }
                        }

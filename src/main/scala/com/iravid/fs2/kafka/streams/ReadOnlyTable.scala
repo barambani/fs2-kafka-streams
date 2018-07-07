@@ -66,15 +66,14 @@ object ReadOnlyTable {
   }
 
   object persistent {
-    def partitioned[F[_]: Concurrent, K: Codec, V: Codec](
-      stores: KeyValueStores[Codec, Path, F],
-      storeKey: TopicPartition => Path,
-      recordStream: RecordStream.Partitioned[F, V])(
+    def partitioned[F[_]: Concurrent, K, V](stores: KVStores[Codec, Path, F],
+                                            storeKey: TopicPartition => Path,
+                                            recordStream: RecordStream.Partitioned[F, V])(
       key: V => K
-    ): Stream[F, (TopicPartition, ReadOnlyTable[F, K, V])] =
+    )(implicit K: Key.Aux[Codec, K, V]): Stream[F, (TopicPartition, ReadOnlyTable[F, K, V])] =
       recordStream.records.flatMap {
         case (tp, stream) =>
-          Stream.resource(stores.open[K, V](storeKey(tp))) flatMap { store =>
+          Stream.resource(stores.open(storeKey(tp))) flatMap { store =>
             Stream.eval {
               stream
                 .evalMap { record =>
@@ -96,7 +95,7 @@ object ReadOnlyTable {
       }
 
     def plain[F[_]: Concurrent, K, V](
-      store: KeyValueStore[F, K, V],
+      store: KVStore[F, K, V],
       recordStream: RecordStream.Plain[F, V])(key: V => K): F[ReadOnlyTable[F, K, V]] =
       for {
         updateProcess <- recordStream.records

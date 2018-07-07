@@ -9,11 +9,11 @@ import scodec.Codec
 
 import scala.collection.JavaConverters._
 
-trait KeyValueStores[C[_], P, F[_]] {
-  def open[K: C, V: C](storeKey: P): Resource[F, KeyValueStore[F, K, V]]
+trait KVStores[C[_], P, F[_]] {
+  def open(storeKey: P): Resource[F, PolyKVStore[F, C]]
 }
 
-class RocksDBKeyValueStores[F[_]](implicit F: Sync[F]) extends KeyValueStores[Codec, Path, F] {
+class RocksDBKVStores[F[_]](implicit F: Sync[F]) extends KVStores[Codec, Path, F] {
   def listColumnFamilies(storeKey: Path): F[List[ColumnFamilyDescriptor]] =
     F.delay(
       RocksDB
@@ -23,7 +23,7 @@ class RocksDBKeyValueStores[F[_]](implicit F: Sync[F]) extends KeyValueStores[Co
         .map(new ColumnFamilyDescriptor(_))
     )
 
-  def open[K: Codec, V: Codec](storeKey: Path): Resource[F, KeyValueStore[F, K, V]] =
+  def open(storeKey: Path): Resource[F, PolyKVStore[F, Codec]] =
     Resource
       .make {
         for {
@@ -78,7 +78,7 @@ class RocksDBKeyValueStores[F[_]](implicit F: Sync[F]) extends KeyValueStores[Co
       }
       .map {
         case (rocksdb, columnFamilyHandles, defaultColumnFamily) =>
-          new RocksDBKeyValueStore(
+          new RocksDBPolyKVStore(
             rocksdb,
             columnFamilyHandles,
             defaultColumnFamily
