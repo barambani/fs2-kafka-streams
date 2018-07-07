@@ -5,7 +5,13 @@ import cats.effect.concurrent.Ref
 import cats.implicits._
 import fs2.Stream
 import java.nio.charset.StandardCharsets
-import org.rocksdb.{ ColumnFamilyDescriptor, ColumnFamilyHandle => RocksDBColFHandle, RocksDB }
+import org.rocksdb.{
+  ColumnFamilyDescriptor,
+  ColumnFamilyHandle => RocksDBColFHandle,
+  RocksDB,
+  WriteBatch,
+  WriteOptions
+}
 import scodec.Codec
 import scodec.bits.BitVector
 
@@ -27,6 +33,10 @@ trait PolyKVStore[F[_], C[_]] { self =>
 
   def put[K, V](k: K, v: V)(implicit K: Key.Aux[C, K, V]): F[Unit]
   def put[K, V](columnFamily: ColumnFamilyHandle, k: K, v: V)(implicit K: Key.Aux[C, K, V]): F[Unit]
+
+  def putAll[K, V](data: List[(K, V)])(implicit K: Key.Aux[C, K, V]): F[Unit]
+  def putAll[K, V](columnFamily: ColumnFamilyHandle, data: List[(K, V)])(
+    implicit K: Key.Aux[C, K, V]): F[Unit]
 
   def delete[K](k: K)(implicit K: Key[C, K]): F[Unit]
   def delete[K](columnFamily: ColumnFamilyHandle, k: K)(implicit K: Key[C, K]): F[Unit]
@@ -136,6 +146,29 @@ class RocksDBPolyKVStore[F[_]](rocksdb: RocksDB,
     rocksDbColumnFamilies.get.flatMap(
       _.get(columnFamily)
         .traverse_(put0(_, k, v)))
+
+  def putAll0[K, V](h: RocksDBColFHandle, data: List[(K, V)])(implicit K: Key.Aux[Codec, K, V]) =
+    F.bracket(F.delay(new WriteBatch())) { writeBatch =>
+      F.bracket(F.delay(new WriteOptions())) { writeOptions =>
+        F.delay {
+          data.foreach { kv =>
+            writeBatch.put(
+              h,
+              K.KeyTC.encode(kv._1).require.toByteArray,
+              K.ValueTC.encode(kv._2).require.toByteArray
+            )
+          }
+
+          rocksdb.write(writeOptions, writeBatch)
+        }
+      }(wo => F.delay(wo.close()))
+    }(wb => F.delay(wb.close()))
+
+  def putAll[K, V](data: List[(K, V)])(implicit K: Key.Aux[Codec, K, V]): F[Unit] =
+    putAll0(defaultColumnFamily, data)
+  def putAll[K, V](columnFamily: ColumnFamilyHandle, data: List[(K, V)])(
+    implicit K: Key.Aux[Codec, K, V]): F[Unit] =
+    rocksDbColumnFamilies.get.flatMap(_.get(columnFamily).traverse_(putAll0(_, data)))
 
   def scan0[K, V](h: RocksDBColFHandle)(implicit K: Key.Aux[Codec, K, V]): Stream[F, (K, V)] =
     Stream
