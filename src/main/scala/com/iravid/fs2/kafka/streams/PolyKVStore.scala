@@ -70,6 +70,10 @@ trait PolyKVStore[F[_], C[_]] { self =>
     }
 }
 
+object PolyKVStore {
+  type Aux[F[_], C[_], CF] = PolyKVStore[F, C] { type ColumnFamilyHandle = CF }
+}
+
 class RocksDBPolyKVStore[F[_]](rocksdb: RocksDB,
                                rocksDbColumnFamilies: Ref[F, Map[Int, RocksDBColFHandle]],
                                defaultColumnFamily: RocksDBColFHandle)(implicit F: Sync[F])
